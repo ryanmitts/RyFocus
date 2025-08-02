@@ -1,61 +1,55 @@
+import Combine
 //
-//  FocusStackError.swift
+//  FocusStackActor.swift
 //  RyFocus
 //
-//  Created by Ryan Mitts on 2025-08-01.
+//  Created by Ryan Mitts on 2025-08-02.
 //
-
-
-//
-//  FocusStackRunner.swift
-//  RyFocus
-//
-//  Created by Ryan Mitts on 2025-08-01.
-//
-
 import CoreGraphics
 import Foundation
 import ImageIO
-import opencv2
 import MLX
-import Combine
 internal import RealModule
+import opencv2
 
-//enum FocusStackError: Error {
-//    case failedToSave
-//    case unableToOpen
-//}
-//
-//extension Rect {
-//    var cgRect: CGRect {
-//        return CGRect(
-//            origin: CGPoint(x: Double(x), y: Double(y)),
-//            size: CGSize(width: Double(width), height: Double(height))
-//        )
-//    }
-//}
-//
-//extension CGRect {
-//    var rect: Rect {
-//        return Rect(x: Int32(origin.x), y: Int32(origin.y), width: Int32(width), height: Int32(height))
-//    }
-//}
-//
-//extension Double {
-//    func round(to places: Int) -> Double {
-//        let divisor = Double.pow(10.0, Double(places))
-//        return (self * divisor).rounded() / divisor
-//    }
-//}
+enum FocusStackError: Error {
+    case failedToSave
+    case unableToOpen
+}
 
-@Observable
-@MainActor
-class FocusStackRunner {
+extension Rect {
+    var cgRect: CGRect {
+        return CGRect(
+            origin: CGPoint(x: Double(x), y: Double(y)),
+            size: CGSize(width: Double(width), height: Double(height))
+        )
+    }
+}
+
+extension CGRect {
+    var rect: Rect {
+        return Rect(
+            x: Int32(origin.x),
+            y: Int32(origin.y),
+            width: Int32(width),
+            height: Int32(height)
+        )
+    }
+}
+
+extension Double {
+    func round(to places: Int) -> Double {
+        let divisor = Double.pow(10.0, Double(places))
+        return (self * divisor).rounded() / divisor
+    }
+}
+
+public actor FocusStackActor {
     var progress: Double = 0.0
     var isRunning: Bool = false
     var progressiveFocusMap: MLXImage?
 
-    func findWarp(
+    private func findWarp(
         incomingRef: Mat,
         incomingSrc: Mat,
         maxRes: Int,
@@ -138,14 +132,16 @@ class FocusStackRunner {
 
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
-        print("  findWarp (\(rough ? "rough" : "fine")): \(String(format: "%.2f", duration))ms")
+        print(
+            "  findWarp (\(rough ? "rough" : "fine")): \(String(format: "%.2f", duration))ms"
+        )
 
         return warp
     }
 
-    func applyTransform(src: CVImage, warp: Mat) -> CVImage {
+    private func applyTransform(src: CVImage, warp: Mat) -> CVImage {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         let res = Mat(
             rows: src.mat.rows(),
             cols: src.mat.cols(),
@@ -159,15 +155,15 @@ class FocusStackRunner {
             flags: InterpolationFlags.INTER_LANCZOS4.rawValue,
             borderMode: .BORDER_REFLECT
         )
-        
+
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("  applyTransform: \(String(format: "%.2f", duration))ms")
-        
+
         return CVImage(mat: res)
     }
 
-    func transformPoint(point: Point2f, warp: Mat) -> Point2f {
+    private func transformPoint(point: Point2f, warp: Mat) -> Point2f {
         let x =
             warp.at(row: 0, col: 0).v * point.x + warp.at(row: 0, col: 1).v
             * point.y + warp.at(row: 0, col: 2).v
@@ -177,32 +173,36 @@ class FocusStackRunner {
         return Point2f(x: x, y: y)
     }
 
-    func stackWithSecurityScope(imageURLs: [URL], debug: Bool = false) async throws -> MLXImage {
+    func stackWithSecurityScope(imageURLs: [URL], debug: Bool = false)
+        async throws -> MLXImage
+    {
         isRunning = true
         progress = 0.0
         progressiveFocusMap = nil
-        
+
         defer {
             isRunning = false
             progress = 0.0
             progressiveFocusMap = nil
         }
-        
+
         #if os(macOS)
-        // Start security-scoped access for all URLs
-        let accessingUrls = imageURLs.map { ($0, $0.startAccessingSecurityScopedResource()) }
-        defer {
-            // Stop security-scoped access when done
-            for (url, accessing) in accessingUrls {
-                if accessing {
-                    url.stopAccessingSecurityScopedResource()
+            // Start security-scoped access for all URLs
+            let accessingUrls = imageURLs.map {
+                ($0, $0.startAccessingSecurityScopedResource())
+            }
+            defer {
+                // Stop security-scoped access when done
+                for (url, accessing) in accessingUrls {
+                    if accessing {
+                        url.stopAccessingSecurityScopedResource()
+                    }
                 }
             }
-        }
         #endif
-        
+
         return try await stack(
-            imageURLs: imageURLs, 
+            imageURLs: imageURLs,
             debug: debug,
             reportProgress: { progress, focusMap in
                 Task { @MainActor in
@@ -212,10 +212,14 @@ class FocusStackRunner {
             }
         )
     }
-    
-    private func stack(imageURLs: [URL], debug: Bool = false, reportProgress: @escaping @Sendable (Double, MLXImage?) -> Void) async throws -> MLXImage {
+
+    private func stack(
+        imageURLs: [URL],
+        debug: Bool = false,
+        reportProgress: @escaping @Sendable (Double, MLXImage?) -> Void
+    ) async throws -> MLXImage {
         let overallStartTime = CFAbsoluteTimeGetCurrent()
-        
+
         // TODO Wrong error.
         guard !imageURLs.isEmpty else { throw FocusStackError.unableToOpen }
 
@@ -253,8 +257,10 @@ class FocusStackRunner {
         )
         let pyrEndTime = CFAbsoluteTimeGetCurrent()
         let pyrDuration = (pyrEndTime - pyrStartTime) * 1000
-        print("Reference pyramid generation: \(String(format: "%.2f", pyrDuration))ms")
-        
+        print(
+            "Reference pyramid generation: \(String(format: "%.2f", pyrDuration))ms"
+        )
+
         // Generate initial focus map from reference image
         let initialFocusMap = accumulator.getCurrentFocusMap()
         reportProgress(0.0, initialFocusMap)
@@ -262,7 +268,7 @@ class FocusStackRunner {
         for i in 1..<imageURLs.count {
             let imageStartTime = CFAbsoluteTimeGetCurrent()
             print("\nProcessing image \(i + 1)/\(imageURLs.count)")
-            
+
             guard let srcCGImage = await loadCGImage(from: imageURLs[i])
             else {
                 throw FocusStackError.unableToOpen
@@ -347,19 +353,23 @@ class FocusStackRunner {
             let srcPyrGenerated = srcPyramid.generateLaplacianPyramid()
             let srcPyrEndTime = CFAbsoluteTimeGetCurrent()
             let srcPyrDuration = (srcPyrEndTime - srcPyrStartTime) * 1000
-            print("  Source pyramid generation: \(String(format: "%.2f", srcPyrDuration))ms")
-            
+            print(
+                "  Source pyramid generation: \(String(format: "%.2f", srcPyrDuration))ms"
+            )
+
             accumulator.updateWithPyramids(srcPyrGenerated)
 
             // Update progressive focus map
             let updatedFocusMap = accumulator.getCurrentFocusMap()
             let currentProgress = Double(i + 1) / Double(totalImages)
             reportProgress(currentProgress, updatedFocusMap)
-            
+
             let imageEndTime = CFAbsoluteTimeGetCurrent()
             let imageDuration = (imageEndTime - imageStartTime) * 1000
-            print("  Total image processing: \(String(format: "%.2f", imageDuration))ms")
-            
+            print(
+                "  Total image processing: \(String(format: "%.2f", imageDuration))ms"
+            )
+
             // Yield control to keep UI responsive
             await Task.yield()
         }
@@ -376,13 +386,15 @@ class FocusStackRunner {
         let collapsed = bestPyr.collapsePyramid()
         let collapseEndTime = CFAbsoluteTimeGetCurrent()
         let collapseDuration = (collapseEndTime - collapseStartTime) * 1000
-        print("\nPyramid collapse: \(String(format: "%.2f", collapseDuration))ms")
+        print(
+            "\nPyramid collapse: \(String(format: "%.2f", collapseDuration))ms"
+        )
 
         // Convert float32 RGB to 8-bit: clamp to [0,1], scale to [0,255], convert to uint8
         let clamped = clip(collapsed, min: 0.0, max: 1.0)
         let scaled = clamped * 255.0
         let collapsed8bit = scaled.asType(.uint8)
-        
+
         // Apply final crop
         let croppedImage = collapsed8bit[
             Int(crop.y)..<Int(crop.y + crop.height),
@@ -392,10 +404,11 @@ class FocusStackRunner {
 
         let bestImageMlx = MLXImage(croppedImage, bitsPerCompontent: 8)
 
-
         let overallEndTime = CFAbsoluteTimeGetCurrent()
         let overallDuration = (overallEndTime - overallStartTime) * 1000
-        print("\nTotal focus stacking time: \(String(format: "%.2f", overallDuration))ms")
+        print(
+            "\nTotal focus stacking time: \(String(format: "%.2f", overallDuration))ms"
+        )
 
         return bestImageMlx
 

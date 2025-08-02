@@ -5,7 +5,6 @@
 //  Created by Ryan Mitts on 2025-08-01.
 //
 
-
 //
 //  Pyramid.swift
 //  RyFocus
@@ -41,12 +40,12 @@ class Pyramid {
             axes: [0, 3]
         )
     }
-    
+
     init(pyramid: [MLXArray], debug: Bool = false) {
         guard !pyramid.isEmpty else {
             fatalError("Empty pyramid")
         }
-        
+
         self.laplacianPyr = pyramid
         self.img = pyramid[0]
         let minDimension: Int = min(pyramid[0].dim(0), pyramid[0].dim(1))
@@ -98,7 +97,7 @@ class Pyramid {
 
     func pyramidDown(img: MLXArray) -> MLXArray {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         let padding = (self.gauss_w - 1) / 2
         let input = expandedDimensions(img, axes: [0])
 
@@ -120,21 +119,21 @@ class Pyramid {
 
         convolved = convolved[0..., .stride(by: 2), .stride(by: 2), 0...]
         convolved = convolved.squeezed(axes: [0])
-        
+
         if debug {
             convolved.eval()
         }
-        
+
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("    pyramidDown: \(String(format: "%.2f", duration))ms")
-        
+
         return convolved
     }
 
-    func pyramidUp(img: MLXArray, size: [Int]) -> MLXArray {
+    func pyramidUp(img: MLXArray, size: [Int]) async -> MLXArray {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         let targetWidth = size[0]
         let targetHeight = size[1]
         let padding = (self.gauss_w - 1) / 2
@@ -161,52 +160,50 @@ class Pyramid {
         }
 
         convolved = convolved.squeezed(axes: [0])
-        
-        if debug {
-            convolved.eval()
-        }
-        
+
+        await MLX.asyncEval(convolved)
+
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("    pyramidUp: \(String(format: "%.2f", duration))ms")
-        
+
         return convolved
     }
 
-    private func gaussianPyramid() -> [MLXArray] {
+    private func gaussianPyramid() async -> [MLXArray] {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         var pyramid: [MLXArray] = []
         var lower = self.img
         pyramid.append(lower)
         for _ in stride(from: 0, to: self.levels, by: 1) {
-            lower = pyramidDown(img: lower)
+            lower = self.pyramidDown(img: lower)
             pyramid.append(lower)
         }
-        
+
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("  gaussianPyramid: \(String(format: "%.2f", duration))ms")
-        
+
         return pyramid
     }
 
-    func generateLaplacianPyramid() -> [MLXArray] {
+    func generateLaplacianPyramid() async -> [MLXArray] {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         self.laplacianPyr = []
-        let gaussianPyr = gaussianPyramid()
+        let gaussianPyr = await self.gaussianPyramid()
 
         for i in stride(from: 0, to: self.levels, by: 1) {
             let size = [
                 gaussianPyr[i].shape[0], gaussianPyr[i].shape[1],
             ]
-            let gaussianExpanded = pyramidUp(
+            let gaussianExpanded = self.pyramidUp(
                 img: gaussianPyr[i + 1],
                 size: size
             )
             let laplacian = gaussianPyr[i] - gaussianExpanded
-            if debug {
+            if self.debug {
                 laplacian.eval()
             }
             self.laplacianPyr.append(laplacian)
@@ -217,49 +214,50 @@ class Pyramid {
 
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
-        print("  generateLaplacianPyramid: \(String(format: "%.2f", duration))ms")
-
+        print(
+            "  generateLaplacianPyramid: \(String(format: "%.2f", duration))ms"
+        )
         return self.laplacianPyr
     }
-    
+
     func collapsePyramid() -> MLXArray {
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         guard !self.laplacianPyr.isEmpty else {
             fatalError("Empty pyramid")
         }
-        
+
         let lastIdx = self.laplacianPyr.count - 1
-        
+
         if lastIdx == 0 {
             return Pyramid.yuvToRgb(self.laplacianPyr[0])
         }
-        
+
         var current = self.laplacianPyr[lastIdx]
-        
+
         for level in stride(from: lastIdx - 1, through: 0, by: -1) {
             let targetSize = [
                 self.laplacianPyr[level].shape[0],
-                self.laplacianPyr[level].shape[1]
+                self.laplacianPyr[level].shape[1],
             ]
-            
+
             let upsampled = pyramidUp(img: current, size: targetSize)
             current = upsampled + self.laplacianPyr[level]
             if debug {
                 current.eval()
             }
         }
-        
+
         let result = Pyramid.yuvToRgb(current)
-        
+
         if debug {
             result.eval()
         }
-        
+
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("  collapsePyramid: \(String(format: "%.2f", duration))ms")
-        
+
         return result
     }
 }

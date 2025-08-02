@@ -23,8 +23,13 @@ struct ImageStackDetailView: View {
             ToolbarItemGroup(placement: .secondaryAction) {
                 Button {
                     Task {
-                        let urls = imageStack.imageUrls
-                        stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
+                        do {
+                            let urls = imageStack.imageUrls
+                            stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
+                        } catch {
+                            print("Stack operation failed: \(error)")
+                            // TODO: Show error to user
+                        }
                     }
                 } label: {
                     Label("Stack Layers", systemImage: "square.3.layers.3d")
@@ -46,8 +51,13 @@ struct ImageStackDetailView: View {
                 ToolbarItemGroup {
                     Button {
                         Task {
-                            let urls = imageStack.imageUrls
-                            stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
+                            do {
+                                let urls = imageStack.imageUrls
+                                stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
+                            } catch {
+                                print("Stack operation failed: \(error)")
+                                // TODO: Show error to user
+                            }
                         }
                     } label: {
                         Label("Stack Layers", systemImage: "square.3.layers.3d")
