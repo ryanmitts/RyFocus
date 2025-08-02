@@ -67,20 +67,12 @@ struct ContentView: View {
             }
         } detail: {
             if let stack = appModel.selectedImageStack {
-                Text("Item at \(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                appModel.isInspectorPresented.toggle()
-                            } label: {
-                                Label("Toggle Inspector", systemImage: "sidebar.right")
-                            }
-                        }
-                    }
+                ImageStackDetailView(
+                    imageStack: stack,
+                    isInspectorPresented: $appModel.isInspectorPresented
+                )
             } else {
-                Text("Select an item")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptySelectionView()
             }
         }
         .inspector(isPresented: $appModel.isInspectorPresented) {
