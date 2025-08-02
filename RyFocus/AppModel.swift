@@ -10,7 +10,16 @@ import SwiftUI
 
 @Observable @MainActor
 class AppModel {
-    var selectedImageStack: ImageStack? = nil
+    var selectedImageStack: ImageStack? = nil {
+        didSet {
+            // Open inspector when an item is selected, close when deselected
+            if selectedImageStack != nil && oldValue == nil {
+                isInspectorPresented = true
+            } else if selectedImageStack == nil {
+                isInspectorPresented = false
+            }
+        }
+    }
     var isInspectorPresented: Bool = false
     
     init() {

@@ -65,6 +65,7 @@ struct ContentView: View {
                 }
 #endif
             }
+            .toolbar(removing: .title)
         } detail: {
             if let stack = appModel.selectedImageStack {
                 ImageStackDetailView(
@@ -75,6 +76,8 @@ struct ContentView: View {
                 EmptySelectionView()
             }
         }
+        .navigationTitle("")
+        .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $appModel.isInspectorPresented) {
             if let stack = appModel.selectedImageStack {
                 ImageStackInspectorView(

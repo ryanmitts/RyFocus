@@ -26,8 +26,8 @@ struct ImageStackDetailView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Image Stack")
         .toolbar {
+            ToolbarSpacer()
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isInspectorPresented.toggle()
@@ -36,6 +36,8 @@ struct ImageStackDetailView: View {
                 }
             }
         }
+        .toolbar(removing: .title)
+        .ignoresSafeArea(edges: .top)
     }
 }
 
