@@ -10,19 +10,18 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query private var imageStacks: [ImageStack]
+    @State private var selection: ImageStack.ID?
 
     var body: some View {
         NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
+            List(imageStacks, selection: $selection) { stack in
+                Text(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .onDeleteCommand {
+                deleteSelected()
             }
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -38,23 +37,49 @@ struct ContentView: View {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
+#if os(macOS)
+                ToolbarItem {
+                    Button(action: deleteSelected) {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(selection == nil || !imageStacks.contains(where: { $0.id == selection }))
+                }
+#endif
             }
         } detail: {
-            Text("Select an item")
+            if let selection = selection,
+               let stack = imageStacks.first(where: { $0.id == selection }) {
+                Text("Item at \(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
+            } else {
+                Text("Select an item")
+            }
         }
     }
 
     private func addItem() {
         withAnimation {
-            let newItem = Item(timestamp: Date())
+            let newItem = ImageStack(timestamp: Date())
             modelContext.insert(newItem)
         }
     }
 
+    private func deleteSelected() {
+        withAnimation {
+            if let selection = selection,
+               let stack = imageStacks.first(where: { $0.id == selection }) {
+                modelContext.delete(stack)
+                // Force selection update to avoid the double-click issue
+                DispatchQueue.main.async {
+                    self.selection = nil
+                }
+            }
+        }
+    }
+    
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
-                modelContext.delete(items[index])
+                modelContext.delete(imageStacks[index])
             }
         }
     }
@@ -62,5 +87,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: ImageStack.self, inMemory: true)
 }
