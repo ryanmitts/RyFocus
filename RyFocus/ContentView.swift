@@ -35,9 +35,11 @@ struct ContentView: View {
                     }
                 }
             }
+#if os(macOS)
             .onDeleteCommand {
                 deleteSelected()
             }
+#endif
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 250, ideal: 250)
 #endif

@@ -147,7 +147,11 @@ struct ImageStackInspectorView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                 }
+                #if os(macOS)
                 .background(Color(NSColor.controlBackgroundColor))
+                #else
+                .background(Color(.systemGroupedBackground))
+                #endif
             }
         }
         .fileImporter(
@@ -212,21 +216,29 @@ struct ImageStackInspectorView: View {
             return
         }
         
-        // Start accessing the security-scoped resource
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if accessing {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        
         do {
             // Create bookmark for persistent access
+            #if os(macOS)
+            // Start accessing the security-scoped resource
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            
             let bookmarkData = try url.bookmarkData(
                 options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            #else
+            let bookmarkData = try url.bookmarkData(
+                options: [],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            #endif
             
             // Store the bookmark data
             imageStack.imageBookmarks.append(bookmarkData)
