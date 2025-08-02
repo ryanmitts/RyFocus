@@ -9,7 +9,9 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
+    @Query(sort: \ImageStack.timestamp, order: .reverse) private var imageStacks: [ImageStack]
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
 
     var body: some View {
@@ -19,22 +21,22 @@ struct ContentView: View {
             List(selection: Binding(
                 get: { appModel.selectedImageStack?.id },
                 set: { newValue in
-                    appModel.selectedImageStack = appModel.imageStacks.first { $0.id == newValue }
+                    appModel.selectedImageStack = imageStacks.first { $0.id == newValue }
                 }
             )) {
-                ForEach(appModel.imageStacks) { stack in
+                ForEach(imageStacks) { stack in
                     Text(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .onDelete { indexSet in
                     for index in indexSet {
-                        appModel.deleteImageStack(appModel.imageStacks[index])
+                        deleteImageStack(imageStacks[index])
                     }
                 }
             }
             .onDeleteCommand {
-                appModel.deleteSelected()
+                deleteSelected()
             }
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -46,13 +48,17 @@ struct ContentView: View {
                 }
 #endif
                 ToolbarItem {
-                    Button(action: appModel.addImageStack) {
+                    Button {
+                        addImageStack()
+                    } label: {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
 #if os(macOS)
                 ToolbarItem {
-                    Button(action: appModel.deleteSelected) {
+                    Button {
+                        deleteSelected()
+                    } label: {
                         Label("Delete", systemImage: "trash")
                     }
                     .disabled(appModel.selectedImageStack == nil)
@@ -86,6 +92,28 @@ struct ContentView: View {
             } else {
                 EmptyView()
             }
+        }
+    }
+    
+    private func addImageStack() {
+        withAnimation {
+            let newStack = ImageStack(timestamp: Date())
+            modelContext.insert(newStack)
+        }
+    }
+    
+    private func deleteImageStack(_ stack: ImageStack) {
+        withAnimation {
+            modelContext.delete(stack)
+            if appModel.selectedImageStack == stack {
+                appModel.selectedImageStack = nil
+            }
+        }
+    }
+    
+    private func deleteSelected() {
+        if let selected = appModel.selectedImageStack {
+            deleteImageStack(selected)
         }
     }
 

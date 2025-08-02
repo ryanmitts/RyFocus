@@ -29,9 +29,6 @@ struct RyFocusApp: App {
         WindowGroup {
             ContentView()
                 .environment(appModel)
-                .onAppear {
-                    appModel.setModelContext(sharedModelContainer.mainContext)
-                }
         }
         .modelContainer(sharedModelContainer)
     }
