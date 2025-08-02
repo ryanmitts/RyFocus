@@ -10,6 +10,8 @@ import SwiftUI
 
 @Observable @MainActor
 class AppModel {
+    var windowSize: CGSize = .zero
+
     var selectedImageStack: ImageStack? = nil {
         didSet {
             // Open inspector when an item is selected, close when deselected

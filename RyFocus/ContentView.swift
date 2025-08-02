@@ -39,7 +39,7 @@ struct ContentView: View {
                 deleteSelected()
             }
 #if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationSplitViewColumnWidth(min: 250, ideal: 250)
 #endif
             .toolbar {
 #if os(iOS)
@@ -65,7 +65,6 @@ struct ContentView: View {
                 }
 #endif
             }
-            .toolbar(removing: .title)
         } detail: {
             if let stack = appModel.selectedImageStack {
                 ImageStackDetailView(
@@ -76,8 +75,6 @@ struct ContentView: View {
                 EmptySelectionView()
             }
         }
-        .navigationTitle("")
-        .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $appModel.isInspectorPresented) {
             if let stack = appModel.selectedImageStack {
                 ImageStackInspectorView(

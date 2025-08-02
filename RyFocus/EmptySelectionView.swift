@@ -9,13 +9,18 @@ import SwiftUI
 
 struct EmptySelectionView: View {
     var body: some View {
-        Image(decorative: "BackgroundCover")
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            .ignoresSafeArea(.all)
-            .backgroundExtensionEffect()
+        ScrollView(.vertical) {
+            Image(decorative: "BackgroundCover")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .ignoresSafeArea(.all)
+                .backgroundExtensionEffect()
+        }
+        .flexibleHeaderScrollView()
+        .toolbar(removing: .title)
+        .ignoresSafeArea(edges: .top)
 
         //        VStack(spacing: 20) {
         //            Image(systemName: "photo.stack")

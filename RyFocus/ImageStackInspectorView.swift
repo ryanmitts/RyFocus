@@ -93,8 +93,18 @@ struct ImageStackInspectorView: View {
                 }
             } else {
                 // List view when images exist
-                List {
-                    ForEach(Array(imageStack.imageUrls.enumerated()), id: \.offset) { index, url in
+                List(selection: Binding(
+                    get: { imageStack.selectedImageURL },
+                    set: { newValue in
+                        imageStack.selectedImageURL = newValue
+                        do {
+                            try modelContext.save()
+                        } catch {
+                            print("Failed to save selected image: \(error)")
+                        }
+                    }
+                )) {
+                    ForEach(Array(imageStack.imageUrls.enumerated()), id: \.element) { index, url in
                         HStack {
                             Image(systemName: "photo")
                                 .foregroundStyle(.secondary)
@@ -112,6 +122,7 @@ struct ImageStackInspectorView: View {
                             Spacer()
                         }
                         .padding(.vertical, 2)
+                        .tag(url)
                     }
                     .onDelete(perform: removeImages)
                 }
@@ -146,7 +157,7 @@ struct ImageStackInspectorView: View {
         ) { result in
             handleFileSelection(result: result)
         }
-        .inspectorColumnWidth(min: 200, ideal: 280, max: 350)
+        .inspectorColumnWidth(min: 250, ideal: 250, max: 350)
     }
     
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
@@ -162,7 +173,7 @@ struct ImageStackInspectorView: View {
                     provider.loadFileRepresentation(forTypeIdentifier: UTType.item.identifier) { fallbackUrl, fallbackError in
                         if let fallbackUrl = fallbackUrl {
                             DispatchQueue.main.async {
-                                self.addImageUrl(fallbackUrl, isDragDrop: true)
+                                self.addImageUrl(fallbackUrl)
                             }
                         } else if let fallbackError = fallbackError {
                             print("Fallback error for item \(index): \(fallbackError)")
@@ -174,7 +185,7 @@ struct ImageStackInspectorView: View {
                 if let url = url {
                     print("Got URL for item \(index): \(url.path), inPlace: \(inPlace)")
                     DispatchQueue.main.async {
-                        self.addImageUrl(url, isDragDrop: true)
+                        self.addImageUrl(url)
                     }
                 }
             }
@@ -187,70 +198,57 @@ struct ImageStackInspectorView: View {
         switch result {
         case .success(let urls):
             for url in urls {
-                addImageUrl(url, isFromFilePicker: true)
+                addImageUrl(url)
             }
         case .failure(let error):
             print("File selection error: \(error)")
         }
     }
     
-    private func addImageUrl(_ url: URL, isFromFilePicker: Bool = false, isDragDrop: Bool = false) {
+    private func addImageUrl(_ url: URL) {
         // Check if file exists
         guard FileManager.default.fileExists(atPath: url.path) else {
             print("File does not exist: \(url.path)")
             return
         }
         
-        // For drag-and-drop or file picker, create security-scoped bookmark
-        if isDragDrop || isFromFilePicker {
-            // Start accessing the security-scoped resource
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessing {
-                    url.stopAccessingSecurityScopedResource()
-                }
+        // Start accessing the security-scoped resource
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
             }
+        }
+        
+        do {
+            // Create bookmark for persistent access
+            let bookmarkData = try url.bookmarkData(
+                options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
             
-            do {
-                // Create bookmark for persistent access
-                let bookmarkData = try url.bookmarkData(
-                    options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
-                
-                // Store the bookmark data (you might want to store this instead of URL)
-                // For now, we'll just use the URL
-                imageStack.imageUrls.append(url)
-                try modelContext.save()
-                print("Added image with security scope: \(url.lastPathComponent)")
-                
-            } catch {
-                print("Failed to create bookmark: \(error)")
-                // Try adding without bookmark as fallback
-                imageStack.imageUrls.append(url)
-                do {
-                    try modelContext.save()
-                    print("Added image without bookmark: \(url.lastPathComponent)")
-                } catch {
-                    print("Failed to save: \(error)")
-                }
-            }
-        } else {
-            // Direct URL add for other cases
-            imageStack.imageUrls.append(url)
-            do {
-                try modelContext.save()
-                print("Added image directly: \(url.lastPathComponent)")
-            } catch {
-                print("Failed to save: \(error)")
-            }
+            // Store the bookmark data
+            imageStack.imageBookmarks.append(bookmarkData)
+            try modelContext.save()
+            print("Added image: \(url.lastPathComponent)")
+            
+        } catch {
+            print("Failed to create bookmark: \(error)")
         }
     }
     
     private func removeImages(at offsets: IndexSet) {
-        for index in offsets {
-            imageStack.imageUrls.remove(at: index)
+        let urlsToRemove = offsets.map { imageStack.imageUrls[$0] }
+        
+        for index in offsets.sorted(by: >) {
+            imageStack.imageBookmarks.remove(at: index)
+        }
+        
+        // Clear selection if the removed image was selected
+        if let selectedURL = imageStack.selectedImageURL,
+           urlsToRemove.contains(where: { $0.path == selectedURL.path }) {
+            imageStack.selectedImageURL = nil
         }
         
         do {
@@ -261,7 +259,8 @@ struct ImageStackInspectorView: View {
     }
     
     private func clearAllImages() {
-        imageStack.imageUrls.removeAll()
+        imageStack.imageBookmarks.removeAll()
+        imageStack.selectedImageURL = nil
         
         do {
             try modelContext.save()
