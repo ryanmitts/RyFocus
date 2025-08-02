@@ -35,7 +35,9 @@ class AppModel {
     }
     
     @objc private func contextDidChange(_ notification: Notification) {
-        loadImageStacks()
+        Task { @MainActor in
+            loadImageStacks()
+        }
     }
     
     func loadImageStacks() {
@@ -59,13 +61,6 @@ class AppModel {
         withAnimation {
             let newStack = ImageStack(timestamp: Date())
             modelContext.insert(newStack)
-            
-            do {
-                try modelContext.save()
-                loadImageStacks()
-            } catch {
-                print("Failed to save new image stack: \(error)")
-            }
         }
     }
     
@@ -76,13 +71,6 @@ class AppModel {
             modelContext.delete(stack)
             if selectedImageStack == stack {
                 selectedImageStack = nil
-            }
-            
-            do {
-                try modelContext.save()
-                loadImageStacks()
-            } catch {
-                print("Failed to delete image stack: \(error)")
             }
         }
     }

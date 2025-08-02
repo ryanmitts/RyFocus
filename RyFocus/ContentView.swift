@@ -10,11 +10,12 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(AppModel.self) private var appModel
+    @State private var preferredColumn: NavigationSplitViewColumn = .detail
 
     var body: some View {
         @Bindable var appModel = appModel
         
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: $preferredColumn) {
             List(selection: Binding(
                 get: { appModel.selectedImageStack?.id },
                 set: { newValue in
@@ -71,39 +72,19 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .inspector(isPresented: $appModel.isInspectorPresented) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Details")
-                                .font(.headline)
-                                .padding(.horizontal)
-                            
-                            Divider()
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("Created", systemImage: "calendar")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(stack.timestamp, format: Date.FormatStyle(date: .abbreviated, time: .shortened))
-                                    .font(.body)
-                            }
-                            .padding(.horizontal)
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("Images", systemImage: "photo.stack")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text("\(stack.imageUrls.count) images")
-                                    .font(.body)
-                            }
-                            .padding(.horizontal)
-                            
-                            Spacer()
-                        }
-                        .inspectorColumnWidth(min: 200, ideal: 250, max: 300)
-                    }
             } else {
                 Text("Select an item")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .inspector(isPresented: $appModel.isInspectorPresented) {
+            if let stack = appModel.selectedImageStack {
+                ImageStackInspectorView(
+                    imageStack: stack,
+                    inspectorIsPresented: $appModel.isInspectorPresented
+                )
+            } else {
+                EmptyView()
             }
         }
     }
