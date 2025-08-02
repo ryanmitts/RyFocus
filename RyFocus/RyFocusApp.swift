@@ -10,6 +10,8 @@ import SwiftData
 
 @main
 struct RyFocusApp: App {
+    @State private var appModel = AppModel()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             ImageStack.self,
@@ -26,6 +28,10 @@ struct RyFocusApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(appModel)
+                .onAppear {
+                    appModel.setModelContext(sharedModelContainer.mainContext)
+                }
         }
         .modelContainer(sharedModelContainer)
     }

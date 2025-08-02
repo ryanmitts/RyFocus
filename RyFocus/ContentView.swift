@@ -9,19 +9,31 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var imageStacks: [ImageStack]
-    @State private var selection: ImageStack.ID?
+    @Environment(AppModel.self) private var appModel
 
     var body: some View {
+        @Bindable var appModel = appModel
+        
         NavigationSplitView {
-            List(imageStacks, selection: $selection) { stack in
-                Text(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            List(selection: Binding(
+                get: { appModel.selectedImageStack?.id },
+                set: { newValue in
+                    appModel.selectedImageStack = appModel.imageStacks.first { $0.id == newValue }
+                }
+            )) {
+                ForEach(appModel.imageStacks) { stack in
+                    Text(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        appModel.deleteImageStack(appModel.imageStacks[index])
+                    }
+                }
             }
             .onDeleteCommand {
-                deleteSelected()
+                appModel.deleteSelected()
             }
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -33,59 +45,73 @@ struct ContentView: View {
                 }
 #endif
                 ToolbarItem {
-                    Button(action: addItem) {
+                    Button(action: appModel.addImageStack) {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
 #if os(macOS)
                 ToolbarItem {
-                    Button(action: deleteSelected) {
+                    Button(action: appModel.deleteSelected) {
                         Label("Delete", systemImage: "trash")
                     }
-                    .disabled(selection == nil || !imageStacks.contains(where: { $0.id == selection }))
+                    .disabled(appModel.selectedImageStack == nil)
                 }
 #endif
             }
         } detail: {
-            if let selection = selection,
-               let stack = imageStacks.first(where: { $0.id == selection }) {
+            if let stack = appModel.selectedImageStack {
                 Text("Item at \(stack.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                appModel.isInspectorPresented.toggle()
+                            } label: {
+                                Label("Toggle Inspector", systemImage: "sidebar.right")
+                            }
+                        }
+                    }
+                    .inspector(isPresented: $appModel.isInspectorPresented) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Details")
+                                .font(.headline)
+                                .padding(.horizontal)
+                            
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Created", systemImage: "calendar")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(stack.timestamp, format: Date.FormatStyle(date: .abbreviated, time: .shortened))
+                                    .font(.body)
+                            }
+                            .padding(.horizontal)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Images", systemImage: "photo.stack")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("\(stack.imageUrls.count) images")
+                                    .font(.body)
+                            }
+                            .padding(.horizontal)
+                            
+                            Spacer()
+                        }
+                        .inspectorColumnWidth(min: 200, ideal: 250, max: 300)
+                    }
             } else {
                 Text("Select an item")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = ImageStack(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteSelected() {
-        withAnimation {
-            if let selection = selection,
-               let stack = imageStacks.first(where: { $0.id == selection }) {
-                modelContext.delete(stack)
-                // Force selection update to avoid the double-click issue
-                DispatchQueue.main.async {
-                    self.selection = nil
-                }
-            }
-        }
-    }
-    
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(imageStacks[index])
-            }
-        }
-    }
 }
 
 #Preview {
     ContentView()
         .modelContainer(for: ImageStack.self, inMemory: true)
+        .environment(AppModel())
 }
