@@ -20,7 +20,18 @@ struct InspectorPanelView: View {
     
     var body: some View {
         VStack {
-            if let stackedResult = stackedResult {
+            if stackRunner.isRunning, let progressiveFocusMap = stackRunner.progressiveFocusMap {
+                // Display the progressive focus map while running
+                #if os(macOS)
+                let cgImage = progressiveFocusMap.asCGImage()
+                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                ZoomableImageView(image: nsImage)
+                #else
+                let cgImage = progressiveFocusMap.asCGImage()
+                let uiImage = UIImage(cgImage: cgImage)
+                ZoomableImageView(image: uiImage)
+                #endif
+            } else if let stackedResult = stackedResult {
                 // Display the stacked result
                 #if os(macOS)
                 let cgImage = stackedResult.asCGImage()
@@ -37,7 +48,7 @@ struct InspectorPanelView: View {
                     Image(systemName: "photo.stack.fill")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
-                    Text("Stacked result will appear here")
+                    Text(stackRunner.isRunning ? "Building focus map..." : "Stacked result will appear here")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

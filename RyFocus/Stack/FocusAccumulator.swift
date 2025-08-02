@@ -17,6 +17,7 @@ import Foundation
 
 class FocusAccumulator {
     var bestPyr: [MLXArray] = []
+    var contributionMap: MLXArray? = nil  // Track which pixels were updated by current image
     let pyrLevels: Int
     let height: Int
     let width: Int
@@ -29,6 +30,9 @@ class FocusAccumulator {
         self.width = initialPyr[0].shape[1]
         self.bestPyr = initialPyr
         self.debug = debug
+        
+        // Initialize contribution map to zeros - will show contributions as images are processed
+        self.contributionMap = zeros([height, width], dtype: .float32)
     }
     
     func updateWithPyramids(_ newPyr: [MLXArray]) {
@@ -178,6 +182,12 @@ class FocusAccumulator {
         // Apply conditional update
         let updated = MLX.where(channelMask, newLevel, self.bestPyr[level])
         
+        // Update contribution map for level 0 (finest level)
+        if level == 0 {
+            // Set updated pixels to 1.0 (cumulative - don't reset to zeros)
+            self.contributionMap = MLX.where(mask, ones(like: mask), self.contributionMap!)
+        }
+        
         // Count updates (only for Y channel to avoid triple counting)
         let yMask = mask.asType(.int32)
         let updateCount = sum(yMask).item(Int.self)
@@ -193,5 +203,18 @@ class FocusAccumulator {
         print("    Apply mask for level \(level): \(String(format: "%.2f", duration))ms")
         
         return updateCount
+    }
+    
+    func getCurrentFocusMap() -> MLXImage {
+        // Generate the current progressive stacked result by collapsing the current pyramid
+        let progressivePyr = Pyramid(pyramid: self.bestPyr, debug: false)
+        let collapsedResult = progressivePyr.collapsePyramid()
+        
+        // Convert to displayable format: clamp to [0,1], scale to [0,255], convert to uint8
+        let clamped = clip(collapsedResult, min: 0.0, max: 1.0)
+        let scaled = clamped * 255.0
+        let uint8Result = scaled.asType(DType.uint8)
+        
+        return MLXImage(uint8Result, bitsPerCompontent: 8)
     }
 }

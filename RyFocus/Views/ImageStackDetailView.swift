@@ -24,7 +24,7 @@ struct ImageStackDetailView: View {
                 Button {
                     Task {
                         let urls = imageStack.imageUrls
-                        stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: true)
+                        stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
                     }
                 } label: {
                     Label("Stack Layers", systemImage: "square.3.layers.3d")
@@ -47,7 +47,7 @@ struct ImageStackDetailView: View {
                     Button {
                         Task {
                             let urls = imageStack.imageUrls
-                            stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: true)
+                            stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
                         }
                     } label: {
                         Label("Stack Layers", systemImage: "square.3.layers.3d")

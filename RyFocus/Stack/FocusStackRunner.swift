@@ -18,6 +18,7 @@ import Foundation
 import ImageIO
 import opencv2
 import MLX
+import Combine
 internal import RealModule
 
 enum FocusStackError: Error {
@@ -52,6 +53,7 @@ extension Double {
 class FocusStackRunner {
     var progress: Double = 0.0
     var isRunning: Bool = false
+    var progressiveFocusMap: MLXImage?
 
     func findWarp(
         incomingRef: Mat,
@@ -176,30 +178,55 @@ class FocusStackRunner {
     }
 
     func stackWithSecurityScope(imageURLs: [URL], debug: Bool = false) async throws -> MLXImage {
-        #if os(macOS)
-        // Start security-scoped access for all URLs
-        let accessingUrls = imageURLs.map { ($0, $0.startAccessingSecurityScopedResource()) }
+        isRunning = true
+        progress = 0.0
+        progressiveFocusMap = nil
+        
         defer {
-            // Stop security-scoped access when done
-            for (url, accessing) in accessingUrls {
-                if accessing {
-                    url.stopAccessingSecurityScopedResource()
+            isRunning = false
+            progress = 0.0
+            progressiveFocusMap = nil
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            Task.detached {
+                #if os(macOS)
+                // Start security-scoped access for all URLs
+                let accessingUrls = imageURLs.map { ($0, $0.startAccessingSecurityScopedResource()) }
+                defer {
+                    // Stop security-scoped access when done
+                    for (url, accessing) in accessingUrls {
+                        if accessing {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+                }
+                #endif
+                
+                do {
+                    let result = try await self.stack(
+                        imageURLs: imageURLs, 
+                        debug: debug,
+                        reportProgress: { progress, focusMap in
+                            Task { @MainActor in
+                                self.progress = progress
+                                self.progressiveFocusMap = focusMap
+                            }
+                        }
+                    )
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
             }
         }
-        #endif
-        
-        return try await stack(imageURLs: imageURLs, debug: debug)
     }
     
-    func stack(imageURLs: [URL], debug: Bool = false) async throws -> MLXImage {
+    private func stack(imageURLs: [URL], debug: Bool = false, reportProgress: @escaping @Sendable (Double, MLXImage?) -> Void) async throws -> MLXImage {
         let overallStartTime = CFAbsoluteTimeGetCurrent()
         
         // TODO Wrong error.
         guard !imageURLs.isEmpty else { throw FocusStackError.unableToOpen }
-
-        isRunning = true
-        progress = 0.0
 
         let totalImages = imageURLs.count
 
@@ -236,6 +263,10 @@ class FocusStackRunner {
         let pyrEndTime = CFAbsoluteTimeGetCurrent()
         let pyrDuration = (pyrEndTime - pyrStartTime) * 1000
         print("Reference pyramid generation: \(String(format: "%.2f", pyrDuration))ms")
+        
+        // Generate initial focus map from reference image
+        let initialFocusMap = accumulator.getCurrentFocusMap()
+        reportProgress(0.0, initialFocusMap)
 
         for i in 1..<imageURLs.count {
             let imageStartTime = CFAbsoluteTimeGetCurrent()
@@ -329,8 +360,10 @@ class FocusStackRunner {
             
             accumulator.updateWithPyramids(srcPyrGenerated)
 
-            // Update progress
-            progress = Double(i + 1) / Double(totalImages)
+            // Update progressive focus map
+            let updatedFocusMap = accumulator.getCurrentFocusMap()
+            let currentProgress = Double(i + 1) / Double(totalImages)
+            reportProgress(currentProgress, updatedFocusMap)
             
             let imageEndTime = CFAbsoluteTimeGetCurrent()
             let imageDuration = (imageEndTime - imageStartTime) * 1000
@@ -368,8 +401,6 @@ class FocusStackRunner {
 
         let bestImageMlx = MLXImage(croppedImage, bitsPerCompontent: 8)
 
-        isRunning = false
-        progress = 0.0
 
         let overallEndTime = CFAbsoluteTimeGetCurrent()
         let overallDuration = (overallEndTime - overallStartTime) * 1000
