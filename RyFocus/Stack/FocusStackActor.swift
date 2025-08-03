@@ -18,6 +18,7 @@ enum FocusStackError: Error {
 }
 
 extension Rect {
+    @FocusStackActor
     var cgRect: CGRect {
         return CGRect(
             origin: CGPoint(x: Double(x), y: Double(y)),
@@ -27,6 +28,7 @@ extension Rect {
 }
 
 extension CGRect {
+    @FocusStackActor
     var rect: Rect {
         return Rect(
             x: Int32(origin.x),
@@ -38,17 +40,32 @@ extension CGRect {
 }
 
 extension Double {
+    @FocusStackActor
     func round(to places: Int) -> Double {
         let divisor = Double.pow(10.0, Double(places))
         return (self * divisor).rounded() / divisor
     }
 }
 
-public actor FocusStackActor {
-    var progress: Double = 0.0
-    var isRunning: Bool = false
+struct Progress: Equatable, Sendable {
+    let current: Double?
+    let limit: Double?
+    let image: CGImage?
+    let isRunning: Bool
+}
+
+@globalActor public actor FocusStackActor {
+    static public let shared = FocusStackActor()
     var progressiveFocusMap: MLXImage?
 
+//    @Sendable
+//    nonisolated private func updateProgress(progress: Progress?) {
+//        Task { @MainActor in
+//            self.progress = progress
+//        }
+//    }
+
+    @FocusStackActor
     private func findWarp(
         incomingRef: Mat,
         incomingSrc: Mat,
@@ -139,19 +156,20 @@ public actor FocusStackActor {
         return warp
     }
 
-    private func applyTransform(src: CVImage, warp: Mat) -> CVImage {
+    @FocusStackActor
+    private func applyTransform(src: Mat, warp: Mat) -> Mat {
         let startTime = CFAbsoluteTimeGetCurrent()
 
         let res = Mat(
-            rows: src.mat.rows(),
-            cols: src.mat.cols(),
-            type: src.mat.type()
+            rows: src.rows(),
+            cols: src.cols(),
+            type: src.type()
         )
         Imgproc.warpAffine(
-            src: src.mat,
+            src: src,
             dst: res,
             M: warp,
-            dsize: Size2i(width: src.mat.width(), height: src.mat.height()),
+            dsize: Size2i(width: src.width(), height: src.height()),
             flags: InterpolationFlags.INTER_LANCZOS4.rawValue,
             borderMode: .BORDER_REFLECT
         )
@@ -160,9 +178,10 @@ public actor FocusStackActor {
         let duration = (endTime - startTime) * 1000
         print("  applyTransform: \(String(format: "%.2f", duration))ms")
 
-        return CVImage(mat: res)
+        return res
     }
 
+    @FocusStackActor
     private func transformPoint(point: Point2f, warp: Mat) -> Point2f {
         let x =
             warp.at(row: 0, col: 0).v * point.x + warp.at(row: 0, col: 1).v
@@ -173,18 +192,13 @@ public actor FocusStackActor {
         return Point2f(x: x, y: y)
     }
 
-    func stackWithSecurityScope(imageURLs: [URL], debug: Bool = false)
-        async throws -> MLXImage
+    func stackWithSecurityScope(
+        imageURLs: [URL],
+        reportProgress: @escaping @Sendable (Progress) -> Void
+    )
+        async throws -> CGImage
     {
-        isRunning = true
-        progress = 0.0
         progressiveFocusMap = nil
-
-        defer {
-            isRunning = false
-            progress = 0.0
-            progressiveFocusMap = nil
-        }
 
         #if os(macOS)
             // Start security-scoped access for all URLs
@@ -203,21 +217,15 @@ public actor FocusStackActor {
 
         return try await stack(
             imageURLs: imageURLs,
-            debug: debug,
-            reportProgress: { progress, focusMap in
-                Task { @MainActor in
-                    self.progress = progress
-                    self.progressiveFocusMap = focusMap
-                }
-            }
+            reportProgress: reportProgress
         )
     }
 
+    @FocusStackActor
     private func stack(
         imageURLs: [URL],
-        debug: Bool = false,
-        reportProgress: @escaping @Sendable (Double, MLXImage?) -> Void
-    ) async throws -> MLXImage {
+        reportProgress: @escaping @Sendable (Progress) -> Void
+    ) async throws -> CGImage {
         let overallStartTime = CFAbsoluteTimeGetCurrent()
 
         // TODO Wrong error.
@@ -232,10 +240,13 @@ public actor FocusStackActor {
         else {
             throw FocusStackError.unableToOpen
         }
-        var refCvImage = CVImage(image: refCGImage)
+        
+        reportProgress(.init(current: 0, limit: Double(imageURLs.count), image: refCGImage, isRunning: true))
+        
+        var refMat = cgImageToMat(image: refCGImage)
         let grayWeights = Mat(rows: 1, cols: 3, type: CvType.CV_32F)
         try grayWeights.put(row: 0, col: 0, data: [0.299, 0.587, 0.114])
-        var refGray = refCvImage.to8BitGray(weights: grayWeights)
+        var refGrayMat = matTo8BitGray(image: refMat, weights: grayWeights)
 
         // For the reference image
         crops.append(
@@ -249,11 +260,10 @@ public actor FocusStackActor {
         warps.append(Mat.eye(rows: 2, cols: 3, type: CvType.CV_32F))
 
         let pyrStartTime = CFAbsoluteTimeGetCurrent()
-        let refPyr = Pyramid(img: refCvImage.toMlx(), debug: debug)
+        let refPyr = Pyramid(img: matToMlx(image: refMat))
         let refLaplacian = refPyr.generateLaplacianPyramid()
         let accumulator = FocusAccumulator(
             initialPyr: refLaplacian,
-            debug: debug
         )
         let pyrEndTime = CFAbsoluteTimeGetCurrent()
         let pyrDuration = (pyrEndTime - pyrStartTime) * 1000
@@ -263,7 +273,6 @@ public actor FocusStackActor {
 
         // Generate initial focus map from reference image
         let initialFocusMap = accumulator.getCurrentFocusMap()
-        reportProgress(0.0, initialFocusMap)
 
         for i in 1..<imageURLs.count {
             let imageStartTime = CFAbsoluteTimeGetCurrent()
@@ -273,18 +282,18 @@ public actor FocusStackActor {
             else {
                 throw FocusStackError.unableToOpen
             }
-            let srcCvImage = CVImage(image: srcCGImage)
-            let srcGray = srcCvImage.to8BitGray(weights: grayWeights)
+            let srcMat = cgImageToMat(image: srcCGImage)
+            let srcGrayMat = matTo8BitGray(image: srcMat, weights: grayWeights)
 
             let warpRough = findWarp(
-                incomingRef: refGray.mat,
-                incomingSrc: srcGray.mat,
+                incomingRef: refGrayMat,
+                incomingSrc: srcGrayMat,
                 maxRes: 256,
                 rough: true
             )
             var warp = findWarp(
-                incomingRef: refGray.mat,
-                incomingSrc: srcGray.mat,
+                incomingRef: refGrayMat,
+                incomingSrc: srcGrayMat,
                 maxRes: 2048,
                 rough: false,
                 prevWarp: warpRough
@@ -310,23 +319,23 @@ public actor FocusStackActor {
                 """
             )
 
-            let warpedSrc = applyTransform(src: srcCvImage, warp: warp)
+            let warpedSrc = applyTransform(src: srcMat, warp: warp)
 
             warps.append(warp)
 
             let tl = transformPoint(point: Point2f(x: 0, y: 0), warp: warp)
             let tr = transformPoint(
-                point: Point2f(x: Float(srcCvImage.mat.width()), y: 0),
+                point: Point2f(x: Float(srcMat.width()), y: 0),
                 warp: warp
             )
             let bl = transformPoint(
-                point: Point2f(x: 0, y: Float(srcCvImage.mat.height())),
+                point: Point2f(x: 0, y: Float(srcMat.height())),
                 warp: warp
             )
             let br = transformPoint(
                 point: Point2f(
-                    x: Float(srcCvImage.mat.width()),
-                    y: Float(srcCvImage.mat.height())
+                    x: Float(srcMat.width()),
+                    y: Float(srcMat.height())
                 ),
                 warp: warp
             )
@@ -344,12 +353,11 @@ public actor FocusStackActor {
             print("Crop: \(cropArea.cgRect)")
             crops.append(cropArea)
 
-            refCGImage = srcCGImage
-            refCvImage = srcCvImage
-            refGray = srcGray
+            refMat = srcMat
+            refGrayMat = srcGrayMat
 
             let srcPyrStartTime = CFAbsoluteTimeGetCurrent()
-            let srcPyramid = Pyramid(img: warpedSrc.toMlx(), debug: debug)
+            let srcPyramid = Pyramid(img: matToMlx(image: warpedSrc))
             let srcPyrGenerated = srcPyramid.generateLaplacianPyramid()
             let srcPyrEndTime = CFAbsoluteTimeGetCurrent()
             let srcPyrDuration = (srcPyrEndTime - srcPyrStartTime) * 1000
@@ -361,8 +369,7 @@ public actor FocusStackActor {
 
             // Update progressive focus map
             let updatedFocusMap = accumulator.getCurrentFocusMap()
-            let currentProgress = Double(i + 1) / Double(totalImages)
-            reportProgress(currentProgress, updatedFocusMap)
+            reportProgress(.init(current: Double(i), limit: Double(imageURLs.count), image: updatedFocusMap.asCGImage(), isRunning: true))
 
             let imageEndTime = CFAbsoluteTimeGetCurrent()
             let imageDuration = (imageEndTime - imageStartTime) * 1000
@@ -381,7 +388,7 @@ public actor FocusStackActor {
         print("The crop: \(crop.cgRect)")
 
         let collapseStartTime = CFAbsoluteTimeGetCurrent()
-        let bestPyr = Pyramid(pyramid: accumulator.bestPyr, debug: debug)
+        let bestPyr = Pyramid(pyramid: accumulator.bestPyr)
         // TODO: Need to actually know the original bit depth.
         let collapsed = bestPyr.collapsePyramid()
         let collapseEndTime = CFAbsoluteTimeGetCurrent()
@@ -410,8 +417,9 @@ public actor FocusStackActor {
             "\nTotal focus stacking time: \(String(format: "%.2f", overallDuration))ms"
         )
 
-        return bestImageMlx
-
+        let result = bestImageMlx.asCGImage()
+        reportProgress(.init(current: Double(imageURLs.count), limit: Double(imageURLs.count), image: result, isRunning: false))
+        return result
     }
 
     private func loadCGImage(from url: URL) async -> CGImage? {

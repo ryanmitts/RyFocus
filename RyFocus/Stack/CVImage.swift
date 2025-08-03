@@ -18,7 +18,7 @@ import ImageIO
 import MLX
 import opencv2
 
-public struct CVImage {
+public struct CVImage: @unchecked Sendable {
     let mat: Mat
 
     public init(image: CGImage) {

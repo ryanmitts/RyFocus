@@ -19,6 +19,7 @@ import MLX
 import UniformTypeIdentifiers
 
 /// Conversion utilities for moving between `MLXArray`, `CGImage` and files.
+@FocusStackActor
 public struct MLXImage {
     public var data: MLXArray
     public var bitsPerComponent: Int
@@ -79,6 +80,7 @@ public struct MLXImage {
             raster = padded(raster, widths: [0, 0, [0, 1]])
         }
 
+        @FocusStackActor
         class DataHolder {
             var data: Data
             init(_ data: Data) {
@@ -89,7 +91,8 @@ public struct MLXImage {
         let holder = DataHolder(raster.asData(access: .copy).data)
 
         let payload = Unmanaged.passRetained(holder).toOpaque()
-        func release(payload: UnsafeMutableRawPointer?, data: UnsafeMutableRawPointer?) {
+        
+        nonisolated func release(payload: UnsafeMutableRawPointer?, data: UnsafeMutableRawPointer?) {
             Unmanaged<DataHolder>.fromOpaque(payload!).release()
         }
 

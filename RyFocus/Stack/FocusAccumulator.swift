@@ -15,6 +15,7 @@
 import MLX
 import Foundation
 
+@FocusStackActor
 class FocusAccumulator {
     var bestPyr: [MLXArray] = []
     var contributionMap: MLXArray? = nil  // Track which pixels were updated by current image

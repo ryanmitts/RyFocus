@@ -10,50 +10,39 @@ import SwiftUI
 struct ImageStackDetailView: View {
     let imageStack: ImageStack
     @Binding var isInspectorPresented: Bool
-    @State private var stackRunner = FocusStackRunner()
-    @State private var stackedResult: MLXImage?
+    @State private var stackActor = FocusStackActor.shared
+    @State private var stackedResult: CGImage?
+    @State private var progress: Progress?
+
+    @Sendable
+    nonisolated private func updateProgress(progress: Progress?) {
+        Task { @MainActor in
+            self.progress = progress
+        }
+    }
 
     var body: some View {
         #if os(macOS)
-        HSplitView {
-            ImageDisplayView(imageStack: imageStack)
-            InspectorPanelView(imageStack: imageStack, stackRunner: stackRunner, stackedResult: stackedResult)
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    Task {
-                        do {
-                            let urls = imageStack.imageUrls
-                            stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
-                        } catch {
-                            print("Stack operation failed: \(error)")
-                            // TODO: Show error to user
-                        }
-                    }
-                } label: {
-                    Label("Stack Layers", systemImage: "square.3.layers.3d")
-                }
-                .disabled(stackRunner.isRunning || imageStack.imageUrls.isEmpty)
+            HSplitView {
+                ImageDisplayView(imageStack: imageStack)
+                InspectorPanelView(
+                    imageStack: imageStack,
+                    stackActor: stackActor,
+                    stackedResult: stackedResult,
+                    progress: progress
+                )
             }
-            
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    isInspectorPresented.toggle()
-                } label: {
-                    Label("Toggle Inspector", systemImage: "sidebar.right")
-                }
-            }
-        }
-        #else
-        ImageDisplayView(imageStack: imageStack)
             .toolbar {
-                ToolbarItemGroup {
+                ToolbarItemGroup(placement: .secondaryAction) {
                     Button {
                         Task {
                             do {
                                 let urls = imageStack.imageUrls
-                                stackedResult = try await stackRunner.stackWithSecurityScope(imageURLs: urls, debug: false)
+                                stackedResult =
+                                    try await stackActor.stackWithSecurityScope(
+                                        imageURLs: urls,
+                                        reportProgress: updateProgress
+                                    )
                             } catch {
                                 print("Stack operation failed: \(error)")
                                 // TODO: Show error to user
@@ -62,9 +51,12 @@ struct ImageStackDetailView: View {
                     } label: {
                         Label("Stack Layers", systemImage: "square.3.layers.3d")
                     }
-                    .disabled(stackRunner.isRunning || imageStack.imageUrls.isEmpty)
+                    .disabled(
+                        progress?.isRunning ?? false
+                            || imageStack.imageUrls.isEmpty
+                    )
                 }
-                
+
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         isInspectorPresented.toggle()
@@ -73,11 +65,52 @@ struct ImageStackDetailView: View {
                     }
                 }
             }
+        #else
+            ImageDisplayView(imageStack: imageStack)
+                .toolbar {
+                    ToolbarItemGroup {
+                        Button {
+                            Task {
+                                do {
+                                    let urls = imageStack.imageUrls
+                                    stackedResult =
+                                        try await stackActor
+                                        .stackWithSecurityScope(
+                                            imageURLs: urls,
+                                            reportProgress: updateProgress
+                                        )
+                                } catch {
+                                    print("Stack operation failed: \(error)")
+                                    // TODO: Show error to user
+                                }
+                            }
+                        } label: {
+                            Label(
+                                "Stack Layers",
+                                systemImage: "square.3.layers.3d"
+                            )
+                        }
+                        .disabled(
+                            progress?.isRunning ?? false
+                                || imageStack.imageUrls.isEmpty
+                        )
+                    }
+
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            isInspectorPresented.toggle()
+                        } label: {
+                            Label(
+                                "Toggle Inspector",
+                                systemImage: "sidebar.right"
+                            )
+                        }
+                    }
+                }
         #endif
     }
 
 }
-
 
 #Preview {
     ImageStackDetailView(

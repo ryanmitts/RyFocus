@@ -15,32 +15,44 @@ import SwiftUI
 
 struct InspectorPanelView: View {
     let imageStack: ImageStack
-    let stackRunner: FocusStackRunner
-    let stackedResult: MLXImage?
-    
+    let stackActor: FocusStackActor
+    let stackedResult: CGImage?
+    let progress: Progress?
+
     var body: some View {
         VStack {
-            if stackRunner.isRunning, let progressiveFocusMap = stackRunner.progressiveFocusMap {
+            if let progress = progress, progress.isRunning,
+               let progressiveFocusMap = progress.image
+            {
                 // Display the progressive focus map while running
                 #if os(macOS)
-                let cgImage = progressiveFocusMap.asCGImage()
-                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                ZoomableImageView(image: nsImage)
+                    let nsImage = NSImage(
+                        cgImage: progressiveFocusMap,
+                        size: NSSize(
+                            width: progressiveFocusMap.width,
+                            height: progressiveFocusMap.height
+                        )
+                    )
+                    ZoomableImageView(image: nsImage)
                 #else
-                let cgImage = progressiveFocusMap.asCGImage()
-                let uiImage = UIImage(cgImage: cgImage)
-                ZoomableImageView(image: uiImage)
+                    let uiImage = UIImage(cgImage: progressiveFocusMap)
+                    ZoomableImageView(image: uiImage)
                 #endif
             } else if let stackedResult = stackedResult {
                 // Display the stacked result
                 #if os(macOS)
-                let cgImage = stackedResult.asCGImage()
-                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                ZoomableImageView(image: nsImage)
+                    let nsImage = NSImage(
+                        cgImage: stackedResult,
+                        size: NSSize(
+                            width: stackedResult.width,
+                            height: stackedResult.height
+                        )
+                    )
+                    ZoomableImageView(image: nsImage)
                 #else
-                let cgImage = stackedResult.asCGImage()
-                let uiImage = UIImage(cgImage: cgImage)
-                ZoomableImageView(image: uiImage)
+                    let cgImage = stackedResult.asCGImage()
+                    let uiImage = UIImage(cgImage: cgImage)
+                    ZoomableImageView(image: uiImage)
                 #endif
             } else {
                 // Show placeholder when no stacked result
@@ -48,17 +60,26 @@ struct InspectorPanelView: View {
                     Image(systemName: "photo.stack.fill")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
-                    Text(stackRunner.isRunning ? "Building focus map..." : "Stacked result will appear here")
-                        .foregroundStyle(.secondary)
+                    Text(
+                        progress?.isRunning == true
+                            ? "Building focus map..."
+                            : "Stacked result will appear here"
+                    )
+                    .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            
-            if stackRunner.isRunning {
+
+            if let progress = progress, progress.isRunning,
+                let current = progress.current,
+                let limit = progress.limit, limit > 0
+            {
+                let fraction = current / limit
+
                 VStack {
-                    ProgressView(value: stackRunner.progress)
+                    ProgressView(value: fraction)
                         .progressViewStyle(LinearProgressViewStyle())
-                    Text("\(Int(stackRunner.progress * 100))%")
+                    Text("\(Int(fraction * 100))%")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -69,5 +90,10 @@ struct InspectorPanelView: View {
 }
 
 #Preview {
-    InspectorPanelView(imageStack: ImageStack(timestamp: Date()), stackRunner: FocusStackRunner(), stackedResult: nil)
+    InspectorPanelView(
+        imageStack: ImageStack(timestamp: Date()),
+        stackActor: FocusStackActor.shared,
+        stackedResult: nil,
+        progress: nil
+    )
 }

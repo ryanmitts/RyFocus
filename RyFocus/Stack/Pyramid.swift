@@ -14,6 +14,7 @@
 import Foundation
 import MLX
 
+@FocusStackActor
 class Pyramid {
     private var gauss_w: Int = 5
     private var downscaleGaussKernel: MLXArray
@@ -21,9 +22,8 @@ class Pyramid {
     private var img: MLXArray
     private var levels: Int
     var laplacianPyr: [MLXArray] = []
-    let debug: Bool
 
-    init(img: MLXArray, debug: Bool = false) {
+    init(img: MLXArray) {
         let rgbImg = img.asType(.float32)
         // Normalize to [0,1] range - assuming input is 8-bit [0,255] or 16-bit [0,65535]
         let maxVal = img.dtype == .uint8 ? 255.0 : 65535.0
@@ -31,7 +31,6 @@ class Pyramid {
         self.img = Pyramid.rgbToYuv(normalizedRgb)
         let minDimension: Int = min(img.dim(0), img.dim(1))
         self.levels = Int(floor(log2(Float(minDimension) / Float(64))) + 1)
-        self.debug = debug
 
         let kernel2d = Pyramid.gaussianKernel(l: self.gauss_w)
         self.downscaleGaussKernel = expandedDimensions(kernel2d, axes: [0, 3])
@@ -50,7 +49,6 @@ class Pyramid {
         self.img = pyramid[0]
         let minDimension: Int = min(pyramid[0].dim(0), pyramid[0].dim(1))
         self.levels = pyramid.count - 1
-        self.debug = debug
 
         let kernel2d = Pyramid.gaussianKernel(l: self.gauss_w)
         self.downscaleGaussKernel = expandedDimensions(kernel2d, axes: [0, 3])
@@ -120,10 +118,6 @@ class Pyramid {
         convolved = convolved[0..., .stride(by: 2), .stride(by: 2), 0...]
         convolved = convolved.squeezed(axes: [0])
 
-        if debug {
-            convolved.eval()
-        }
-
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("    pyramidDown: \(String(format: "%.2f", duration))ms")
@@ -131,7 +125,7 @@ class Pyramid {
         return convolved
     }
 
-    func pyramidUp(img: MLXArray, size: [Int]) async -> MLXArray {
+    func pyramidUp(img: MLXArray, size: [Int]) -> MLXArray {
         let startTime = CFAbsoluteTimeGetCurrent()
 
         let targetWidth = size[0]
@@ -161,8 +155,6 @@ class Pyramid {
 
         convolved = convolved.squeezed(axes: [0])
 
-        await MLX.asyncEval(convolved)
-
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
         print("    pyramidUp: \(String(format: "%.2f", duration))ms")
@@ -170,7 +162,7 @@ class Pyramid {
         return convolved
     }
 
-    private func gaussianPyramid() async -> [MLXArray] {
+    private func gaussianPyramid() -> [MLXArray] {
         let startTime = CFAbsoluteTimeGetCurrent()
 
         var pyramid: [MLXArray] = []
@@ -188,11 +180,11 @@ class Pyramid {
         return pyramid
     }
 
-    func generateLaplacianPyramid() async -> [MLXArray] {
+    func generateLaplacianPyramid() -> [MLXArray] {
         let startTime = CFAbsoluteTimeGetCurrent()
 
         self.laplacianPyr = []
-        let gaussianPyr = await self.gaussianPyramid()
+        let gaussianPyr = self.gaussianPyramid()
 
         for i in stride(from: 0, to: self.levels, by: 1) {
             let size = [
@@ -203,9 +195,6 @@ class Pyramid {
                 size: size
             )
             let laplacian = gaussianPyr[i] - gaussianExpanded
-            if self.debug {
-                laplacian.eval()
-            }
             self.laplacianPyr.append(laplacian)
         }
 
@@ -243,16 +232,9 @@ class Pyramid {
 
             let upsampled = pyramidUp(img: current, size: targetSize)
             current = upsampled + self.laplacianPyr[level]
-            if debug {
-                current.eval()
-            }
         }
 
         let result = Pyramid.yuvToRgb(current)
-
-        if debug {
-            result.eval()
-        }
 
         let endTime = CFAbsoluteTimeGetCurrent()
         let duration = (endTime - startTime) * 1000
