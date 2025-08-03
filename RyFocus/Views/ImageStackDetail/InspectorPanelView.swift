@@ -50,8 +50,7 @@ struct InspectorPanelView: View {
                     )
                     ZoomableImageView(image: nsImage)
                 #else
-                    let cgImage = stackedResult.asCGImage()
-                    let uiImage = UIImage(cgImage: cgImage)
+                    let uiImage = UIImage(cgImage: stackedResult)
                     ZoomableImageView(image: uiImage)
                 #endif
             } else {
